@@ -1,0 +1,117 @@
+CREATE TABLE loginCredentials (LoginID varchar(20) NOT NULL, password varchar(20), PRIMARY KEY(LoginId));
+CREATE TABLE user (userId varchar(20) NOT NULL, name varchar(20), emailId varchar(20), phoneNo BIGINT(10),LoginId varchar(20), PRIMARY KEY(UserId), FOREIGN KEY(LoginId) REFERENCES loginCredentials(LoginId));
+CREATE TABLE movie (movieId int(10) NOT NULL, title varchar(20), description varchar(20), rating float(10), releaseYear YEAR, genre varchar(20), PRIMARY KEY(movieId));
+CREATE TABLE webSeries (seriesId int(10) NOT NULL, title varchar(20), description varchar(20), rating float(10), releaseYear YEAR, genre varchar(20), noOfEpisodes INT(10), PRIMARY KEY(seriesId));
+CREATE TABLE subscription (subId INT(10) NOT NULL, type varchar(20), price float(10), PRIMARY KEY(subId));
+CREATE TABLE castInfo (castId INT(10) NOT NULL, name VARCHAR(20), age INT(10), city VARCHAR(20), PRIMARY KEY(castId));
+CREATE TABLE moviecasting (castId INT(10) NOT NULL, movieId int(10) NOT NULL, FOREIGN KEY(castId) REFERENCES castInfo(castId), FOREIGN KEY(movieId) REFERENCES movie(movieId));
+ALTER TABLE user ADD COLUMN subId INT(10);
+ALTER TABLE user ADD CONSTRAINT FOREIGN KEY(subId) REFERENCES subscription(subId);
+####################TRIGGERS########################
+DELIMITER $$
+CREATE TRIGGER rating_check BEFORE UPDATE ON movie
+       FOR EACH ROW
+       BEGIN
+           IF NEW.rating < 0 THEN
+               SET NEW.rating = 0;
+           ELSEIF NEW.rating > 10 THEN
+               SET NEW.rating = 10;
+           END IF;
+       END;$$
+DELIMITER ;
+
+
+DELIMITER $$
+CREATE TRIGGER update_rating BEFORE UPDATE ON movie
+       FOR EACH ROW
+       BEGIN
+           SET NEW.rating=(OLD.rating+NEW.rating)/2;
+       END;$$
+DELIMITER ;
+##################JOINS##########################
+SELECT * FROM logincredentials, user WHERE logincredentials.LoginId = %s AND logincredentials.password = %s AND logincredentials.LoginId = user.LoginId
+SELECT movieCast.name, movie.title FROM movieCast, movie WHERE movieCast.movieId=movie.movieId;
+SELECT * FROM subscription LEFT OUTER JOIN user ON subscription.subId = user.subId;
+SELECT * FROM (SELECT castInfo.name,movieCasting.movieId FROM castInfo RIGHT OUTER JOIN movieCasting ON castInfo.castId=movieCasting.castId UNION SELECT castInfo.name,movieCasting.movieId FROM castInfo LEFT OUTER JOIN movieCasting ON castInfo.castId=movieCasting.castId) as c;
+
+###########################
+CREATE VIEW movieCast AS (SELECT name,castId FROM (SELECT castInfo.name,movieCasting.castId FROM castInfo RIGHT OUTER JOIN movieCasting ON castInfo.castId=movieCasting.castId UNION SELECT castInfo.name,movieCasting.castId FROM castInfo LEFT OUTER JOIN movieCasting ON castInfo.castId=movieCasting.castId) as c;);
+SELECT movieCast.name, movie.title FROM movieCast, movie WHERE movieCast.movieId=movie.movieId;
+################FUNCTIONS#######################
+DELIMITER $$
+CREATE FUNCTION totalCast(movId INT(10))
+    RETURNS INT(10)
+    DETERMINISTIC
+    BEGIN
+    DECLARE res INT(10);
+    SELECT COUNT(*) INTO res FROM movieCasting GROUP BY movieId HAVING movieCasting.movieId=movId;
+    RETURN res;
+    END;$$
+DELIMITER ;
+SELECT totalCast(1);
+
+
+##########AGGREGATES#####################
+--------Movie Count--------------
+SELECT COUNT(*) FROM movie;
+
+--------Avg Rating--------------
+SELECT AVG(movie.rating) FROM movie;
+
+--------Most subscription---------
+SELECT subId,MAX(subCount) AS max FROM (SELECT subId, COUNT(*) AS subCount FROM user GROUP BY subId) AS a;
+
+--------Least Rating--------------
+SELECT title,MIN(rating) as MinRating FROM movie;
+###############################
+
+#############PROCEDURE###################
+DROP PROCEDURE getCastMovies;
+DELIMITER $$
+CREATE PROCEDURE getCastMovies()
+BEGIN
+SELECT castId,COUNT(*) from movieCasting GROUP BY castId;
+END;$$
+DELIMITER ;
+call getCastMovies();
+#########################################
+
+#############SET OPERATIONS##############
+-----------------Also acted in--------------
+DROP PROCEDURE getCommonCast;
+DELIMITER $$
+CREATE PROCEDURE getCommonCast(IN movie1 INT(10), IN movie2 INT(10))
+BEGIN
+SELECT castId FROM movieCasting where movieId=movie1 INTERSECT SELECT castId FROM movieCasting where movieId=movie2;
+END;$$
+DELIMITER ;
+call getCommonCast(2,6);
+
+-----------------Provide offer to annual subscribers--------------------
+SELECT * FROM user WHERE subId=1 UNION SELECT * FROM user WHERE subId=3;
+
+-----------------Provide offer to subscribers other than annual--------------------
+SELECT * FROM user EXCEPT SELECT * FROM user WHERE subId=1;
+
+#########################################
+
+################CURSOR###################
+DELIMITER $$
+CREATE PROCEDURE list_name(INOUT user_list varchar(1000))
+BEGIN
+DECLARE is_done INTEGER DEFAULT 0;
+DECLARE uName varchar(20) DEFAULT "";
+DECLARE getNames CURSOR FOR
+SELECT name FROM user;
+DECLARE CONTINUE HANDLER FOR NOT FOUND SET is_done=1;
+OPEN getNames;
+get_names: LOOP
+FETCH getNames INTO uName;
+IF is_done=1 THEN
+LEAVE get_names;
+END IF;
+SET user_list=CONCAT(uName, ";",user_list);
+END LOOP get_names;
+END;$$
+DELIMITER ;
+#########################################
